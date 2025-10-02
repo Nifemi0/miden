@@ -1,0 +1,6 @@
+# Ignore Node.js modules
+frontend/node_modules/
+
+# Ignore Rust target directories
+target/debug/
+target/release/
