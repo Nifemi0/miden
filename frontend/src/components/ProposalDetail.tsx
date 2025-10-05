@@ -7,45 +7,36 @@ import { RadioGroup, RadioGroupItem } from './ui/radio-group'
 import { Label } from './ui/label'
 import { ArrowLeft, Clock, Users, Vote, CheckCircle } from 'lucide-react'
 import { toast } from 'sonner'
-
-interface Proposal {
-  id: string
-  title: string
-  description: string
-  status: 'active' | 'passed' | 'failed' | 'pending'
-  votingModel: 'token-weighted' | 'quadratic' | 'one-person-one-vote'
-  deadline: string
-  quorum: number
-  totalVotes: number
-  choices: Array<{
-    option: string
-    votes: number
-    percentage: number
-  }>
-  creator: string
-  createdAt: string
-}
+import { useWallet } from '@demox-labs/miden-wallet-adapter-react'
+import { castVote } from '../api'
 
 interface ProposalDetailProps {
   proposal: Proposal
   onBack: () => void
-  isWalletConnected: boolean
 }
 
-export function ProposalDetail({ proposal, onBack, isWalletConnected }: ProposalDetailProps) {
+export function ProposalDetail({ proposal, onBack }: ProposalDetailProps) {
   const [selectedChoice, setSelectedChoice] = useState('')
   const [hasVoted, setHasVoted] = useState(false)
+  const [isVoting, setIsVoting] = useState(false)
 
-  const getStatusBadge = (status: string) => {
+  const { connected, publicKey, signMessage } = useWallet()
+
+  const getStatusBadge = (status: Proposal['status'], isRevoked: boolean) => {
+    if (isRevoked) {
+      return <Badge className="bg-gradient-to-r from-red-500 to-pink-500 text-white">Revoked</Badge>
+    }
     switch (status) {
-      case 'active':
-        return <Badge className="bg-blue-100 text-blue-800 border-blue-200">Active</Badge>
-      case 'passed':
-        return <Badge className="bg-green-100 text-green-800 border-green-200">Passed</Badge>
-      case 'failed':
-        return <Badge className="bg-red-100 text-red-800 border-red-200">Failed</Badge>
-      default:
+      case 'Voting':
+        return <Badge className="bg-blue-100 text-blue-800 border-blue-200">Voting</Badge>
+      case 'Approved':
+        return <Badge className="bg-green-100 text-green-800 border-green-200">Approved</Badge>
+      case 'Rejected':
+        return <Badge className="bg-red-100 text-red-800 border-red-200">Rejected</Badge>
+      case 'Pending':
         return <Badge variant="secondary">Pending</Badge>
+      default:
+        return <Badge variant="secondary">{status}</Badge>
     }
   }
 
@@ -73,27 +64,45 @@ export function ProposalDetail({ proposal, onBack, isWalletConnected }: Proposal
   }
 
   const getQuorumProgress = () => {
-    return Math.min((proposal.totalVotes / proposal.quorum) * 100, 100)
+    const totalVotes = proposal.vote_count_yes + proposal.vote_count_no;
+    if (proposal.quorum_percentage === 0) return 0; // Avoid division by zero
+    return Math.min((totalVotes / proposal.quorum_percentage) * 100, 100);
   }
 
-  const handleVote = () => {
+  const handleVote = async () => {
     if (!selectedChoice) {
       toast.error('Please select a voting choice')
       return
     }
 
-    if (!isWalletConnected) {
+    if (!connected) {
       toast.error('Please connect your wallet to vote')
       return
     }
 
-    // Simulate voting
-    setHasVoted(true)
-    toast.success(`Vote cast for "${selectedChoice}"`)
+    if (!publicKey) {
+      toast.error('Wallet public key not available')
+      return
+    }
+
+    setIsVoting(true)
+    try {
+      const message = `Vote for proposal ${proposal.id} with choice ${selectedChoice}`;
+      const signature = await signMessage(new TextEncoder().encode(message));
+
+      await castVote(proposal.id, publicKey.toBase58(), selectedChoice, signature.toString());
+      setHasVoted(true)
+      toast.success(`Vote cast for "${selectedChoice}"`)
+    } catch (error) {
+      console.error('Failed to cast vote:', error)
+      toast.error('Failed to cast vote')
+    } finally {
+      setIsVoting(false)
+    }
   }
 
   const isDeadlinePassed = new Date(proposal.deadline) < new Date()
-  const canVote = proposal.status === 'active' && !isDeadlinePassed && !hasVoted && isWalletConnected
+  const canVote = proposal.status === 'Voting' && !isDeadlinePassed && !hasVoted && connected && !isVoting
 
   return (
     <div className="space-y-6">
@@ -111,8 +120,8 @@ export function ProposalDetail({ proposal, onBack, isWalletConnected }: Proposal
               <div className="space-y-2">
                 <CardTitle className="text-2xl">{proposal.title}</CardTitle>
                 <div className="flex items-center space-x-2">
-                  {getStatusBadge(proposal.status)}
-                  {getVotingModelBadge(proposal.votingModel)}
+                  {getStatusBadge(proposal.status, proposal.is_revoked)}
+                  {getVotingModelBadge(proposal.voting_model)}
                 </div>
               </div>
             </div>
@@ -130,7 +139,7 @@ export function ProposalDetail({ proposal, onBack, isWalletConnected }: Proposal
                 <Users className="h-4 w-4 text-muted-foreground" />
                 <div>
                   <p className="text-sm font-medium">Total Votes</p>
-                  <p className="text-sm text-muted-foreground">{proposal.totalVotes.toLocaleString()}</p>
+                  <p className="text-sm text-muted-foreground">{(proposal.vote_count_yes + proposal.vote_count_no).toLocaleString()}</p>
                 </div>
               </div>
 
@@ -141,7 +150,7 @@ export function ProposalDetail({ proposal, onBack, isWalletConnected }: Proposal
                 </div>
                 <Progress value={getQuorumProgress()} className="h-2" />
                 <p className="text-xs text-muted-foreground">
-                  {proposal.quorum.toLocaleString()} votes required
+                  {proposal.quorum_percentage}% quorum required
                 </p>
               </div>
             </div>
@@ -156,9 +165,9 @@ export function ProposalDetail({ proposal, onBack, isWalletConnected }: Proposal
           </div>
 
           <div>
-            <h3 className="font-medium mb-2">Created by</h3>
+            <h3 className="font-medium mb-2">Proposer</h3>
             <p className="text-sm text-muted-foreground">
-              {proposal.creator} on {formatDate(proposal.createdAt)}
+              {proposal.proposer_id} on {formatDate(proposal.created_at)}
             </p>
           </div>
         </CardContent>
@@ -182,22 +191,27 @@ export function ProposalDetail({ proposal, onBack, isWalletConnected }: Proposal
             ) : canVote ? (
               <>
                 <RadioGroup value={selectedChoice} onValueChange={setSelectedChoice}>
-                  {proposal.choices.map((choice, index) => (
-                    <div key={index} className="flex items-center space-x-2">
-                      <RadioGroupItem value={choice.option} id={`choice-${index}`} />
-                      <Label htmlFor={`choice-${index}`} className="flex-1 cursor-pointer">
-                        {choice.option}
-                      </Label>
-                    </div>
-                  ))}
+                  {/* Assuming choices are dynamically loaded or derived from proposal */}
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="yes" id="option-yes" />
+                    <Label htmlFor="option-yes" className="flex-1 cursor-pointer">
+                      Yes
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="no" id="option-no" />
+                    <Label htmlFor="option-no" className="flex-1 cursor-pointer">
+                      No
+                    </Label>
+                  </div>
                 </RadioGroup>
-                <Button onClick={handleVote} className="w-full">
-                  Cast Vote
+                <Button onClick={handleVote} className="w-full" disabled={isVoting}>
+                  {isVoting ? 'Casting Vote...' : 'Cast Vote'}
                 </Button>
               </>
             ) : (
               <div className="space-y-2">
-                {!isWalletConnected && (
+                {!connected && (
                   <p className="text-sm text-muted-foreground">
                     Connect your wallet to participate in voting.
                   </p>
@@ -207,7 +221,7 @@ export function ProposalDetail({ proposal, onBack, isWalletConnected }: Proposal
                     Voting period has ended.
                   </p>
                 )}
-                {proposal.status !== 'active' && (
+                {proposal.status !== 'Voting' && (
                   <p className="text-sm text-muted-foreground">
                     This proposal is no longer active.
                   </p>
@@ -223,25 +237,35 @@ export function ProposalDetail({ proposal, onBack, isWalletConnected }: Proposal
             <CardTitle>Current Results</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {proposal.choices.map((choice, index) => (
-              <div key={index} className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">{choice.option}</span>
-                  <div className="text-right">
-                    <p className="font-medium">{choice.percentage}%</p>
-                    <p className="text-sm text-muted-foreground">
-                      {choice.votes.toLocaleString()} votes
-                    </p>
-                  </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-medium">Yes</span>
+                <div className="text-right">
+                  <p className="font-medium">{((proposal.vote_count_yes / (proposal.vote_count_yes + proposal.vote_count_no || 1)) * 100).toFixed(1)}%</p>
+                  <p className="text-sm text-muted-foreground">
+                    {proposal.vote_count_yes.toLocaleString()} votes
+                  </p>
                 </div>
-                <Progress value={choice.percentage} className="h-3" />
               </div>
-            ))}
+              <Progress value={((proposal.vote_count_yes / (proposal.vote_count_yes + proposal.vote_count_no || 1)) * 100)} className="h-3" />
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-medium">No</span>
+                <div className="text-right">
+                  <p className="font-medium">{((proposal.vote_count_no / (proposal.vote_count_yes + proposal.vote_count_no || 1)) * 100).toFixed(1)}%</p>
+                  <p className="text-sm text-muted-foreground">
+                    {proposal.vote_count_no.toLocaleString()} votes
+                  </p>
+                </div>
+              </div>
+              <Progress value={((proposal.vote_count_no / (proposal.vote_count_yes + proposal.vote_count_no || 1)) * 100)} className="h-3" />
+            </div>
 
             <div className="pt-4 border-t">
               <div className="flex justify-between text-sm">
                 <span>Total Participation:</span>
-                <span>{proposal.totalVotes.toLocaleString()} votes</span>
+                <span>{(proposal.vote_count_yes + proposal.vote_count_no).toLocaleString()} votes</span>
               </div>
               <div className="flex justify-between text-sm text-muted-foreground">
                 <span>Quorum Status:</span>

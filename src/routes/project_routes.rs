@@ -9,6 +9,7 @@ pub fn project_routes(cfg: &mut web::ServiceConfig) {
             .route("", web::post().to(project_handlers::create_project))
             .route("", web::get().to(project_handlers::get_all_projects))
             .route("/{project_id}", web::get().to(project_handlers::get_project))
+            .route("/{project_id}/status", web::put().to(project_handlers::update_project_status))
             .route("/{project_id}/proposals", web::post().to(proposal_handlers::create_proposal)),
     );
 }

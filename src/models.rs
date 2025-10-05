@@ -4,6 +4,13 @@ use uuid::Uuid;
 use chrono::NaiveDateTime;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct User {
+    pub wallet_address: String,
+    pub role: String,
+    pub created_at: NaiveDateTime,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Project {
     pub id: Uuid,
     pub owner: String,

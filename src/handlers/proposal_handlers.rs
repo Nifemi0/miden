@@ -71,7 +71,11 @@ pub async fn get_proposal(pool: web::Data<PgPool>, proposal_id: web::Path<Uuid>)
     }
 }
 
-pub async fn revoke_proposal(pool: web::Data<PgPool>, proposal_id: web::Path<Uuid>) -> impl Responder {
+pub async fn revoke_proposal(pool: web::Data<PgPool>, proposal_id: web::Path<Uuid>, auth: AuthExtractor) -> impl Responder {
+    if auth.role != "platform_owner" {
+        return HttpResponse::Unauthorized().body("Only platform owners can revoke proposals");
+    }
+
     match sqlx::query_as::<_, Proposal>("UPDATE proposals SET revoked = TRUE WHERE id = $1 RETURNING *")
         .bind(proposal_id.into_inner())
         .fetch_one(pool.get_ref())
@@ -82,13 +86,31 @@ pub async fn revoke_proposal(pool: web::Data<PgPool>, proposal_id: web::Path<Uui
     }
 }
 
-pub async fn finalize_tally(pool: web::Data<PgPool>, proposal_id: web::Path<Uuid>) -> impl Responder {
+pub async fn finalize_tally(pool: web::Data<PgPool>, proposal_id: web::Path<Uuid>, auth: AuthExtractor) -> impl Responder {
+    if auth.role != "platform_owner" {
+        return HttpResponse::Unauthorized().body("Only platform owners can finalize tallies");
+    }
+
     match sqlx::query_as::<_, Proposal>("UPDATE proposals SET finalized = TRUE WHERE id = $1 RETURNING *")
         .bind(proposal_id.into_inner())
         .fetch_one(pool.get_ref())
         .await
     {
         Ok(proposal) => HttpResponse::Ok().json(proposal),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
+
+pub async fn get_all_proposals(pool: web::Data<PgPool>, auth: AuthExtractor) -> impl Responder {
+    if auth.role != "platform_owner" && auth.role != "project_admin" {
+        return HttpResponse::Unauthorized().body("Only platform owners and project admins can view all proposals");
+    }
+
+    match sqlx::query_as::<_, Proposal>("SELECT * FROM proposals")
+        .fetch_all(pool.get_ref())
+        .await
+    {
+        Ok(proposals) => HttpResponse::Ok().json(proposals),
         Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
 }

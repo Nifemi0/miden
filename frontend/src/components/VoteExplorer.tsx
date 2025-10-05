@@ -6,46 +6,39 @@ import { Progress } from './ui/progress'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 import { Clock, Users, CheckCircle, XCircle, Eye } from 'lucide-react'
 import { ProposalDetail } from './ProposalDetail'
-import { getProposals } from '../lib/api'
+import { getProposals } from '../api'
+import { useWallet } from '@demox-labs/miden-wallet-adapter-react'
 
-export interface Proposal {
-  id: string
-  title: string
-  description: string
-  status: 'active' | 'passed' | 'failed' | 'pending'
-  votingModel: 'token-weighted' | 'quadratic' | 'one-person-one-vote'
-  deadline: string
-  quorum: number
-  totalVotes: number
-  choices: Array<{
-    option: string
-    votes: number
-    percentage: number
-  }>
-  creator: string
-  createdAt: string
+interface Proposal {
+  id: string;
+  title: string;
+  description: string;
+  status: 'Pending' | 'Voting' | 'Approved' | 'Rejected' | 'Revoked';
+  proposer_id: string;
+  created_at: string;
+  updated_at: string;
+  vote_count_yes: number;
+  vote_count_no: number;
+  quorum_percentage: number;
+  is_revoked: boolean;
 }
 
-interface VoteExplorerProps {
-  isWalletConnected: boolean
-}
-
-export function VoteExplorer({ isWalletConnected }: VoteExplorerProps) {
+export function VoteExplorer() {
   const [selectedProposal, setSelectedProposal] = useState<Proposal | null>(null)
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | 'active' | 'passed' | 'failed'>('all')
+  const { connected: isWalletConnected } = useWallet()
 
   useEffect(() => {
     const fetchProposals = async () => {
       try {
         setLoading(true)
         const data = await getProposals()
-        console.log('Fetched proposals:', data)
         setProposals(data)
-      } catch (err) {
-        setError('Failed to fetch proposals.')
+      } catch (err: any) {
+        setError(err.message)
       } finally {
         setLoading(false)
       }
@@ -57,18 +50,22 @@ export function VoteExplorer({ isWalletConnected }: VoteExplorerProps) {
     filter === 'all' || proposal.status === filter
   )
 
-  console.log('filteredProposals.length:', filteredProposals.length);
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'active':
-        return <Badge className="bg-gradient-to-r from-cyan-500 to-blue-500 text-white border-0 shadow-sm">Active</Badge>
-      case 'passed':
-        return <Badge className="bg-gradient-to-r from-emerald-500 to-green-500 text-white border-0 shadow-sm">Passed</Badge>
-      case 'failed':
-        return <Badge className="bg-gradient-to-r from-red-500 to-pink-500 text-white border-0 shadow-sm">Failed</Badge>
+  const getStatusBadge = (proposal: Proposal) => {
+    if (proposal.is_revoked) {
+      return <Badge className="bg-gradient-to-r from-red-500 to-pink-500 text-white">Revoked</Badge>
+    }
+    
+    switch (proposal.status) {
+      case 'Voting':
+        return <Badge className="bg-gradient-to-r from-cyan-500 to-blue-500 text-white">Voting</Badge>
+      case 'Approved':
+        return <Badge className="bg-gradient-to-r from-emerald-500 to-green-500 text-white">Approved</Badge>
+      case 'Rejected':
+        return <Badge className="bg-gradient-to-r from-red-500 to-pink-500 text-white">Rejected</Badge>
+      case 'Pending':
+        return <Badge className="bg-gradient-to-r from-gray-400 to-gray-500 text-white">Pending</Badge>
       default:
-        return <Badge className="bg-gradient-to-r from-gray-400 to-gray-500 text-white border-0 shadow-sm">Pending</Badge>
+        return <Badge variant="outline">{proposal.status}</Badge>
     }
   }
 
@@ -96,7 +93,9 @@ export function VoteExplorer({ isWalletConnected }: VoteExplorerProps) {
   }
 
   const getQuorumProgress = (proposal: Proposal) => {
-    return Math.min((proposal.totalVotes / proposal.quorum) * 100, 100)
+    const totalVotes = proposal.vote_count_yes + proposal.vote_count_no;
+    if (proposal.quorum_percentage === 0) return 0; // Avoid division by zero
+    return Math.min((totalVotes / proposal.quorum_percentage) * 100, 100);
   }
 
   if (selectedProposal) {
@@ -146,8 +145,8 @@ export function VoteExplorer({ isWalletConnected }: VoteExplorerProps) {
                       <div className="space-y-2">
                         <CardTitle className="text-xl">{proposal.title}</CardTitle>
                         <div className="flex items-center space-x-2">
-                          {getStatusBadge(proposal.status)}
-                          {getVotingModelBadge(proposal.votingModel)}
+                          {getStatusBadge(proposal)}
+                          {getVotingModelBadge(proposal.voting_model)}
                         </div>
                       </div>
                       <Button 
@@ -178,7 +177,7 @@ export function VoteExplorer({ isWalletConnected }: VoteExplorerProps) {
                         <Users className="h-4 w-4 text-muted-foreground" />
                         <div>
                           <p className="text-sm">Total Votes</p>
-                          <p className="text-sm">{proposal.totalVotes.toLocaleString()}</p>
+                          <p className="text-sm">{proposal.total_votes.toLocaleString()}</p>
                         </div>
                       </div>
 
@@ -195,15 +194,15 @@ export function VoteExplorer({ isWalletConnected }: VoteExplorerProps) {
                       <div className="space-y-2">
                         <p className="text-sm font-medium">Current Results:</p>
                         <div className="space-y-2">
-                          {proposal.choices.map((choice, index) => (
-                            <div key={index} className="space-y-1">
-                              <div className="flex items-center justify-between">
-                                <span className="text-sm">{choice.option}</span>
-                                <span className="text-sm">{choice.percentage}%</span>
-                              </div>
-                              <Progress value={choice.percentage} className="h-2" />
-                            </div>
-                          ))}
+                          {/* Placeholder for actual choices/votes display */}
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm">Yes</span>
+                            <span className="text-sm">{proposal.yes_votes}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm">No</span>
+                            <span className="text-sm">{proposal.no_votes}</span>
+                          </div>
                         </div>
                       </div>
                     )}

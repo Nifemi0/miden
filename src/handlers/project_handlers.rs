@@ -53,12 +53,44 @@ pub async fn get_project(path: web::Path<Uuid>, pool: web::Data<PgPool>) -> impl
     }
 }
 
-pub async fn get_all_projects(pool: web::Data<PgPool>) -> impl Responder {
+pub async fn get_all_projects(pool: web::Data<PgPool>, auth: AuthExtractor) -> impl Responder {
+    if auth.role != "platform_owner" && auth.role != "project_admin" {
+        return HttpResponse::Unauthorized().body("Only platform owners and project admins can view all projects");
+    }
+
     match sqlx::query_as::<_, Project>("SELECT * FROM projects")
         .fetch_all(pool.get_ref())
         .await
     {
         Ok(projects) => HttpResponse::Ok().json(projects),
         Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub struct UpdateProjectStatusRequest {
+    pub status: String,
+}
+
+pub async fn update_project_status(path: web::Path<Uuid>, req: web::Json<UpdateProjectStatusRequest>, pool: web::Data<PgPool>, auth: AuthExtractor) -> impl Responder {
+    if auth.role != "platform_owner" {
+        return HttpResponse::Unauthorized().body("Only platform owners can update project status");
+    }
+
+    let project_id = path.into_inner();
+    let new_status = req.status.clone();
+
+    if !["active", "paused"].contains(&new_status.as_str()) {
+        return HttpResponse::BadRequest().body("Invalid project status");
+    }
+
+    match sqlx::query_as::<_, Project>("UPDATE projects SET status = $1 WHERE id = $2 RETURNING *")
+        .bind(&new_status)
+        .bind(project_id)
+        .fetch_one(pool.get_ref())
+        .await
+    {
+        Ok(project) => HttpResponse::Ok().json(project),
+        Err(_) => HttpResponse::NotFound().body("Project not found"),
     }
 }

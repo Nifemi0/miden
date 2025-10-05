@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Button } from './ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
@@ -6,36 +6,13 @@ import { Plus, Settings, BarChart3 } from 'lucide-react'
 import { ProposalForm } from './ProposalForm'
 import { ProposalManagement } from './ProposalManagement'
 import { GovernanceSettings } from './GovernanceSettings'
-import { getRecentActivity } from '../lib/api'
+import { useWallet } from '@demox-labs/miden-wallet-adapter-react'
 
-interface AdminPortalProps {
-  isWalletConnected: boolean
-}
-
-export function AdminPortal({ isWalletConnected }: AdminPortalProps) {
+export function AdminPortal() {
   const [activeSection, setActiveSection] = useState<'overview' | 'create' | 'manage' | 'settings'>('overview')
-  const [recentActivity, setRecentActivity] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { connected } = useWallet()
 
-  useEffect(() => {
-    if (isWalletConnected) {
-      const fetchActivity = async () => {
-        try {
-          setLoading(true)
-          const data = await getRecentActivity()
-          setRecentActivity(data)
-        } catch (err) {
-          setError('Failed to fetch recent activity.')
-        } finally {
-          setLoading(false)
-        }
-      }
-      fetchActivity()
-    }
-  }, [isWalletConnected])
-
-  if (!isWalletConnected) {
+  if (!connected) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <Card className="w-full max-w-md">
@@ -131,27 +108,29 @@ export function AdminPortal({ isWalletConnected }: AdminPortalProps) {
           <CardTitle>Recent Activity</CardTitle>
         </CardHeader>
         <CardContent>
-          {loading && <div>Loading...</div>}
-          {error && <div>Error: {error}</div>}
-          {!loading && !error && (
-            <div className="space-y-4">
-              {recentActivity.length > 0 ? (
-                recentActivity.map((activity, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                    <div>
-                      <p className="font-medium">{activity.title}</p>
-                      <p className="text-sm text-muted-foreground">{activity.date}</p>
-                    </div>
-                    <span className={`text-sm ${activity.status === 'Active' ? 'text-blue-600' : activity.status === 'Passed' ? 'text-green-600' : 'text-red-600'}`}>
-                      {activity.status}
-                    </span>
-                  </div>
-                ))
-              ) : (
-                <p>No recent activity to show.</p>
-              )}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+              <div>
+                <p className="font-medium">Treasury Allocation Proposal</p>
+                <p className="text-sm text-muted-foreground">Created 2 days ago</p>
+              </div>
+              <span className="text-sm text-blue-600">Active</span>
             </div>
-          )}
+            <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+              <div>
+                <p className="font-medium">Quadratic Voting Implementation</p>
+                <p className="text-sm text-muted-foreground">Completed 1 week ago</p>
+              </div>
+              <span className="text-sm text-green-600">Passed</span>
+            </div>
+            <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+              <div>
+                <p className="font-medium">Partnership Proposal</p>
+                <p className="text-sm text-muted-foreground">Completed 2 weeks ago</p>
+              </div>
+              <span className="text-sm text-red-600">Failed</span>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>

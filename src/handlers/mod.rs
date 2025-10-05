@@ -3,3 +3,4 @@ pub mod proposal_handlers;
 pub mod submission_handlers;
 pub mod tally_handlers;
 pub mod auth_handlers;
+pub mod user_handlers;

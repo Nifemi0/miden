@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -7,6 +7,8 @@ import { Label } from './ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { useWallet } from '@demox-labs/miden-wallet-adapter-react'
+import { createProposal } from '../api'
 
 interface ProposalFormProps {
   onBack: () => void
@@ -19,6 +21,9 @@ export function ProposalForm({ onBack }: ProposalFormProps) {
   const [quorum, setQuorum] = useState('')
   const [deadline, setDeadline] = useState('')
   const [choices, setChoices] = useState(['', ''])
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const { connected, publicKey, signMessage } = useWallet()
 
   const addChoice = () => {
     if (choices.length < 5) {
@@ -38,14 +43,19 @@ export function ProposalForm({ onBack }: ProposalFormProps) {
     setChoices(updatedChoices)
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    console.log({ title, description, votingModel, quorum, deadline, choices });
-    console.log({ title, description, votingModel, quorum, deadline, choices });
-    console.log({ title, description, votingModel, quorum, deadline, choices });
-    console.log({ title, description, votingModel, quorum, deadline, choices });
-    console.log({ title, description, votingModel, quorum, deadline, choices });
     
+    if (!connected) {
+      toast.error('Please connect your Miden wallet to create a proposal')
+      return
+    }
+
+    if (!publicKey) {
+      toast.error('Wallet public key not available')
+      return
+    }
+
     if (!title || !description || !votingModel || !quorum || !deadline) {
       toast.error('Please fill in all required fields')
       return
@@ -56,9 +66,32 @@ export function ProposalForm({ onBack }: ProposalFormProps) {
       return
     }
 
-    // Simulate proposal creation
-    toast.success('Proposal created successfully!')
-    onBack()
+    setIsSubmitting(true)
+
+    try {
+      const message = `Create proposal: ${title}`;
+      const signature = await signMessage(new TextEncoder().encode(message));
+
+      const proposalData = {
+        title,
+        description,
+        voting_model: votingModel,
+        quorum: parseInt(quorum),
+        deadline,
+        choices: choices.filter(choice => choice.trim() !== ''),
+        proposer_wallet_address: publicKey.toBase58(),
+        signature: signature.toString(),
+      };
+
+      await createProposal(proposalData);
+      toast.success('Proposal created successfully!')
+      onBack()
+    } catch (error) {
+      console.error('Failed to create proposal:', error)
+      toast.error('Failed to create proposal')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -76,7 +109,7 @@ export function ProposalForm({ onBack }: ProposalFormProps) {
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-6" role="form">
         <Card>
           <CardHeader>
             <CardTitle>Proposal Details</CardTitle>
@@ -185,7 +218,6 @@ export function ProposalForm({ onBack }: ProposalFormProps) {
                     size="sm"
                     onClick={() => removeChoice(index)}
                     className="mt-6"
-                    aria-label="Remove choice"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -206,8 +238,8 @@ export function ProposalForm({ onBack }: ProposalFormProps) {
           <Button type="button" variant="outline" onClick={onBack}>
             Cancel
           </Button>
-          <Button type="submit">
-            Create Proposal
+          <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? 'Creating...' : 'Create Proposal'}
           </Button>
         </div>
       </form>
